@@ -9,19 +9,14 @@ from tkinter import ttk, filedialog, Canvas, NW
 from PIL import Image, ImageTk
 import cv2
 import time
+import threading
 
 
 class XYStageDriver:
     def __init__(self):
-        self.datax = []
-        self.datay = []
-        self.laserstate = []
-        self.laserpower = 0
-        self.laseron = False
-        self.runparam = True
         self.port, self.serialPort = self.initialize_serial()
-        self.frameshape = None
-        self.framecrop = None
+
+        self.laserpower = 0
         self.scaling_factor = 0.1
         self.speed = 32.0
         self.acceleration = 50
@@ -29,146 +24,52 @@ class XYStageDriver:
         self.ypos = 0
         self.distance_per_roatation = 8
         self.steps_per_revolutoin = 200
+
+        # Empty Arrays
+        self.datax = []
+        self.datay = []
+        self.laserstate = []
+
         self.x_len = 182.88
         self.y_len = 171.96
         self.max_x = self.x_len / 2
         self.max_y = self.y_len / 2
 
+        # Flags
+        self.laseron = False
+        self.runparam = True
+        self.frameshape = None
+        self.framecrop = None
+
+        # Initialise Gui
         self.root = tk.Tk()
         self.setup_ui()
 
 
-
-
-    def initialize_serial(self):
-        print("Initialising COM ports")
-        ports = list(port_list.comports())
-        port = None
-
-        try:
-            for n in range(len(ports)):
-                if "Arduino" in str(ports[n]):
-                    port = ports[n].device
-                    break
-            if not port:
-                raise Exception("No Arduino found")
-        except Exception as e:
-            print(str(e))
-            sys.exit(1)
-
-        try:
-            serialPort = serial.Serial(port=port, baudrate=9600, timeout=2)
-            serialPort.set_buffer_size(rx_size=4096, tx_size=4096)
-            time.sleep(0.1)
-        except:
-            print("Unable to detect Arduino")
-            print(ports)
-            sys.exit(1)
-
-        print(f'COM port for Arduino is {port}')
-        return port, serialPort
-
-    # def setup_ui(self):
-    #     self.root.title("XY Stage Driver")
-    #     self.root.geometry('1200x600')
-    #
-    #     # Frame for laser and motor controls
-    #     control_frame = tk.Frame(self.root)
-    #     control_frame.grid(row=0, column=0, padx=10, pady=10, sticky='n')
-    #
-    #     tk.Label(control_frame, text='Laser Power (mW)').grid(row=0, column=0, padx=10, pady=5)
-    #     self.laser_var = tk.StringVar(value="1")
-    #     tk.Entry(control_frame, textvariable=self.laser_var).grid(row=0, column=1, padx=10, pady=5)
-    #     tk.Button(control_frame, text="Apply Power", command=self.set_laser_power).grid(row=0, column=2, padx=10,
-    #                                                                                     pady=5)
-    #     tk.Button(control_frame, text="Toggle Laser", command=self.toggle_laser).grid(row=0, column=3, padx=10, pady=5)
-    #
-    #     tk.Label(control_frame, text='Carriage Speed (mms-1) [Max: 8.0]').grid(row=1, column=0, padx=10, pady=5)
-    #     self.speed_var = tk.StringVar(value="8.0")
-    #     tk.Entry(control_frame, textvariable=self.speed_var).grid(row=1, column=1, padx=10, pady=5)
-    #     tk.Button(control_frame, text="Set Speed", command=self.set_speed).grid(row=1, column=2, padx=10, pady=5)
-    #
-    #     tk.Label(control_frame, text='Set Acceleration').grid(row=2, column=0, padx=10, pady=5)
-    #     self.accel_var = tk.StringVar(value="500")
-    #     tk.Entry(control_frame, textvariable=self.accel_var).grid(row=2, column=1, padx=10, pady=5)
-    #     tk.Button(control_frame, text="Set Acceleration", command=self.set_acceleration).grid(row=2, column=2, padx=10,
-    #                                                                                           pady=5)
-    #
-    #     tk.Button(control_frame, text="Home Motors", command=self.move_home).grid(row=3, columnspan=3, padx=10, pady=10)
-    #
-    #     # Frame for movement controls
-    #     motion_frame = tk.Frame(self.root)
-    #     motion_frame.grid(row=1, column=0, padx=10, pady=10, sticky='n')
-    #
-    #     tk.Button(motion_frame, text="Start", command=self.move_pen).grid(row=0, column=0, padx=10, pady=5)
-    #     tk.Button(motion_frame, text="Stop", command=self.on_close).grid(row=0, column=1, padx=10, pady=5)
-    #     tk.Button(motion_frame, text="Create Path from Image", command=self.generate_path_from_image).grid(row=1,
-    #                                                                                                        column=0,
-    #                                                                                                        padx=10,
-    #                                                                                                        pady=5)
-    #     tk.Button(motion_frame, text="Clear Path Data", command=self.clear_data).grid(row=1, column=1, padx=10, pady=5)
-    #
-    #     tk.Button(motion_frame, text="Move X", command=self.move_x).grid(row=2, column=0, padx=10, pady=5)
-    #     self.movexentry = tk.Entry(motion_frame)
-    #     self.movexentry.insert(0, "0.0")
-    #     self.movexentry.grid(row=2, column=1, padx=10, pady=5)
-    #
-    #     tk.Button(motion_frame, text="Move Y", command=self.move_y).grid(row=3, column=0, padx=10, pady=5)
-    #     self.moveyentry = tk.Entry(motion_frame)
-    #     self.moveyentry.insert(0, "0.0")
-    #     self.moveyentry.grid(row=3, column=1, padx=10, pady=5)
-    #
-    #     tk.Button(motion_frame, text="Set Home to Current Position", command=self.set_home).grid(row=4, column=0,
-    #                                                                                              columnspan=2, padx=10,
-    #                                                                                              pady=5)
-    #     tk.Button(motion_frame, text="Find Home", command=self.find_home).grid(row=5, column=0, columnspan=2, padx=10,
-    #                                                                            pady=5)
-    #
-    #     tk.Button(motion_frame, text="Stop Scan", command=self.toggle_abort).grid(row=6, column=0, columnspan=2,
-    #                                                                               padx=10, pady=5)
-    #
-    #     # Frame for image display
-    #     canvas_frame = tk.Frame(self.root)
-    #     canvas_frame.grid(row=0, column=1, rowspan=2, padx=10, pady=10, sticky='n')
-    #
-    #     self.imagecanvas = Canvas(canvas_frame, height=300, width=400)
-    #     self.imagecanvas.grid(row=0, column=0, padx=10, pady=5)
-    #
-    #     self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-    #     self.root.mainloop()
-
-
-
+    ########################
+    # Set Up Gui
+    ########################
     def setup_ui(self):
         self.root.title("XY Stage Driver")
-        self.root.geometry('1000x500')
+        self.root.geometry('1500x700')
 
         self.control_frame()
-
-        tk.Button(self.root, text="Start", command=self.move_pen).grid(padx=10, pady=10, column=5, row=0)
-        tk.Button(self.root, text="Stop", command=self.on_close).grid(padx=10, pady=10, column=6, row=0)
-        tk.Button(self.root, text="Create Path from Image", command=self.generate_path_from_image).grid(padx=10,
-                                                                                                        pady=10,
-                                                                                                        column=3, row=0)
-        tk.Button(self.root, text="Clear Path Data", command=self.clear_data).grid(padx=10, pady=10, column=4, row=0)
-
-
-
-        tk.Label(self.root, text='Scaling factor (mm/pixel)').grid(padx=10, pady=10, column=3, row=2)
-        self.scalingentry = tk.Entry(self.root)
-        self.scalingentry.insert(0, "0.1")
-        self.scalingentry.grid(padx=10, pady=10, column=4, row=2)
-
-
-
-        self.abortbtn = tk.Button(self.root, text="Stop Scan", command=self.toggle_abort)
-        self.abortbtn.grid(padx=10, pady=10, column=3, row=9)
-
-        self.imagecanvas = Canvas(self.root, height=300, width=400)
-        self.imagecanvas.grid(column=3, row=3, columnspan=2, rowspan=6)
+        self.image_frame()
+        self.webcam_frame()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.mainloop()
+    def webcam_frame(self):
+
+        self.webcam_frame = ttk.LabelFrame(self.root, text="Webcam")
+        self.webcam_frame.grid(row=0, column=3, padx=10, pady=10, sticky="nsew")
+
+        self.webcam_label = ttk.Label(self.webcam_frame)
+        self.webcam_label.pack()
+
+        # Start webcam feed
+        self.cap = None
+        #self.root.after(500, self.start_webcam)
 
     def control_frame(self):
         # Frame for laser and motor controls
@@ -186,14 +87,13 @@ class XYStageDriver:
 
         # Speed
         self.speed_var = tk.StringVar(value="32.0")
-        tk.Label(control_frame, text='Carriage Speed (mms-1) [Max Val: 32.0 mms-1]').grid(padx=10, pady=10, column=0, row=3)
+        tk.Label(control_frame, text='Speed (mms-1) 32').grid(padx=10, pady=10, column=0, row=3)
         tk.Entry(control_frame, textvariable=self.speed_var).grid(padx=10, pady=10, column=1, row=3)
         self.setspeedbtn = tk.Button(control_frame, text="Set Speed", command=self.set_speed)
         self.setspeedbtn.grid(padx=10, pady=10, column=2, row=3)
 
         #Acceleration
         self.accel_var = tk.StringVar(value="500")
-        self.accel_var.trace('w', self.set_acceleration)
         tk.Label(control_frame, text='Set Acceleration').grid(padx=10, pady=10, column=0, row=4)
         tk.Entry(control_frame, textvariable=self.accel_var).grid(padx=10, pady=10, column=1, row=4)
 
@@ -209,17 +109,17 @@ class XYStageDriver:
         self.moveyentry.insert(0, "0.0")
         self.moveyentry.grid(padx=10, pady=10, column=1, row=6)
 
-        tk.Button(control_frame, text="Set Home to Current Position", command=self.set_home).grid(padx=10,pady=10,column=2,row=6)
-        tk.Button(control_frame, text="Move to Home", command=self.move_home).grid(padx=10, pady=10, column=1,row=7)
+        tk.Button(control_frame, text="Set Home to Current Position", command=self.set_home).grid(padx=10,pady=10,column=1,row=7)
+        tk.Button(control_frame, text="Move to Home", command=self.move_home).grid(padx=10, pady=10, column=1,row=8)
 
-        tk.Button(control_frame, text="FIND Home via limis", command=self.move_home_limits).grid(padx=10, pady=10, column=1, row=8)
+        tk.Button(control_frame, text="FIND Home via limis", command=self.move_home_limits).grid(padx=10, pady=10, column=1, row=9)
 
         jog_frame = ttk.LabelFrame(control_frame, text="jog Controls")
-        jog_frame.grid(row=8, column=0,rowspan=3, padx=10, pady=10, sticky='n')
+        jog_frame.grid(row=10, column=0,rowspan=3, padx=10, pady=10,columnspan=3, sticky='n')
 
         # Jog Controls
         frame_jog = ttk.Frame(jog_frame, padding="10")
-        frame_jog.grid(row=4, column=0, padx=10, pady=10, sticky="ew")
+        frame_jog.grid(row=3, column=0, padx=10, pady=10, sticky="ew")
         ttk.Label(frame_jog, text="Jog Distance (mm):").grid(row=0, column=0, sticky="w")
         self.jog_distance_entry = ttk.Entry(frame_jog, width=10)
         self.jog_distance_entry.grid(row=0, column=1, padx=5)
@@ -230,17 +130,73 @@ class XYStageDriver:
         ttk.Button(frame_jog, text="Jog Left", command=self.jog_left).grid(row=2, column=0, padx=5)
         ttk.Button(frame_jog, text="Jog Right", command=self.jog_right).grid(row=2, column=2, padx=5)
 
-    def find_home(self):
-        print("finding home")
+    def image_frame(self):
+        image_frame = ttk.LabelFrame(self.root, text="Image")
+        image_frame.grid(row=0, column=2, padx=10, pady=10, sticky='n')
+
+        tk.Button(image_frame, text="Start", command=self.move_pen).grid(padx=10, pady=10, column=5, row=0)
+        tk.Button(image_frame, text="Stop", command=self.on_close).grid(padx=10, pady=10, column=6, row=0)
+        tk.Button(image_frame, text="Create Path from Image", command=self.generate_path_from_image).grid(padx=10,pady=10,column=3, row=0)
+        tk.Button(image_frame, text="Clear Path Data", command=self.clear_data).grid(padx=10, pady=10, column=4, row=0)
+
+
+        tk.Label(image_frame, text='Scaling factor (mm/pixel)').grid(padx=10, pady=10, column=3, row=2)
+        self.scalingentry = tk.Entry(image_frame)
+        self.scalingentry.insert(0, "0.1")
+        self.scalingentry.grid(padx=10, pady=10, column=4, row=2)
+
+        self.abortbtn = tk.Button(image_frame, text="Stop Scan", command=self.toggle_abort)
+        self.abortbtn.grid(padx=10, pady=10, column=3, row=9)
+
+        self.imagecanvas = tk.Canvas(image_frame, height=300, width=400)
+        self.imagecanvas.grid(column=3, row=3, columnspan=2, rowspan=6)
+
+        # In the image_frame method
+        tk.Label(image_frame, text='Box Width (mm):').grid(padx=10, pady=5, column=3, row=10)
+        self.box_width_entry = tk.Entry(image_frame)
+        self.box_width_entry.insert(0, "50")
+        self.box_width_entry.grid(padx=10, pady=5, column=4, row=10)
+
+        tk.Label(image_frame, text='Box Height (mm):').grid(padx=10, pady=5, column=3, row=11)
+        self.box_height_entry = tk.Entry(image_frame)
+        self.box_height_entry.insert(0, "50")
+        self.box_height_entry.grid(padx=10, pady=5, column=4, row=11)
+
+        tk.Button(image_frame, text="Show Size Box", command=self.show_size_box).grid(padx=10, pady=5, column=3, row=12)
+
+    ########################
+    # GUI functions
+    ########################
+
+    def start_webcam(self):
+        self.cap = cv2.VideoCapture(0)
+        if self.cap.isOpened():
+            self.webcam_running = True
+            self.webcam_thread = threading.Thread(target=self.update_webcam_thread, daemon=True)
+            self.webcam_thread.start()
+        else:
+            print("Webcam failed to open.")
+
+    def show_size_box(self):
+        try:
+            box_width_mm = float(self.box_width_entry.get())
+            box_height_mm = float(self.box_height_entry.get())
+            # Redraw the current image and overlay the box
+            if self.framecrop is not None:
+                self.update_canvas(self.framecrop)
+                self.draw_size_box(box_width_mm, box_height_mm)
+            else:
+                print("No image loaded to display box.")
+        except Exception as e:
+            print(f"Error: {e}")
 
     def generate_path_from_image(self):
-        self.datax = []
-        self.datay = []
-        self.laserstate = []
+        # open file and ask fro interest
         file_path = filedialog.askopenfilename(filetypes=[("image files", "*.jpg"), ("all files", "*.*")])
         frame = cv2.imread(file_path)
         r = cv2.selectROI("Select region of interest", frame, False)
         cv2.destroyWindow("Select region of interest")
+
 
         self.framecrop = frame[int(r[1]):int(r[1] + r[3]), int(r[0]):int(r[0] + r[2])]
         self.frameshape = np.shape(self.framecrop)
@@ -252,11 +208,10 @@ class XYStageDriver:
         contours = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_TC89_L1)[0]
         #print(contours)
         contours = sorted(contours, key=cv2.contourArea)
-
+        self.update_canvas(self.framecrop)
         for c in contours:
             cv2.drawContours(self.framecrop, c, -1, (255, 0, 0), thickness=2)
 
-        self.update_canvas(self.framecrop)
         self.generate_contour_data(contours)
 
     def generate_contour_data(self, contours):
@@ -264,7 +219,7 @@ class XYStageDriver:
             for n in range(len(contours[c])):
                 self.datax.append((contours[c][n, 0, 1] - int(self.frameshape[0] / 2)) * float(self.scalingentry.get()))
                 self.datay.append((contours[c][n, 0, 0] - int(self.frameshape[1] / 2)) * float(self.scalingentry.get()))
-                self.laserstate.append(0 if n == 0 else self.laserpower)
+                #self.laserstate.append(0 if n == 0 else self.laserpower)
 
             self.datax.append((contours[c][0, 0, 1] - int(self.frameshape[0] / 2)) * float(self.scalingentry.get()))
             self.datay.append((contours[c][0, 0, 0] - int(self.frameshape[1] / 2)) * float(self.scalingentry.get()))
@@ -273,68 +228,138 @@ class XYStageDriver:
     def update_canvas(self, img):
         im = Image.fromarray(img)
         im2 = im.resize((400, 300), Image.LANCZOS)
-        imgtk = ImageTk.PhotoImage(image=im2)
-        self.imagecanvas.create_image(0, 0, anchor=NW, image=imgtk)
+        self.imgtk = ImageTk.PhotoImage(image=im2)
+        self.imagecanvas.create_image(0, 0, anchor=NW, image=self.imgtk)
         self.root.update()
 
     def move_pen(self):
-        commands = []
-        for n in range(len(self.datax)):
-            if self.runparam:
-                commands.append(f"MOVXY {self.datax[n]},{self.datay[n]},{self.laserstate[n]}\n")
-                #message = self.serialPort.readline().decode()
-                self.framecrop = cv2.circle(self.framecrop,
-                                            (int(self.datay[n] / float(self.scalingentry.get()) + self.frameshape[
-                                                1] / 2),
-                                             int(self.datax[n] / float(self.scalingentry.get()) + self.frameshape[
-                                                 0] / 2)),
-                                            1, (0, 255, 0), -1)
-                self.update_canvas(self.framecrop)
+        commands = [f"MOVXY {self.datax[n]},{self.datay[n]},100\n" for n in range(len(self.datax))]
+        command_index = 0
 
-        # Send all commands at once
-        complete_command = ''.join(commands)
-        self.serialPort.write(complete_command.encode("utf8"))
+        def send_next_command():
+            nonlocal command_index
+            if command_index < len(commands):
+                cmd = commands[command_index]
+                self.serialPort.write(cmd.encode("utf8"))
+                print(f"Sent: {cmd.strip()}")
+                command_index += 1
 
-        # Asynchronously read responses
-        while self.serialPort.inWaiting() > 0:
-            message = self.serialPort.readline().decode()
-            # Handle the response as needed
+        # Prime the first command
+        send_next_command()
 
-        self.move_home()
+        while command_index < len(commands):
+            if self.serialPort.inWaiting():
+                line = self.serialPort.readline().decode().strip()
+                if line == "READY":
+                    send_next_command()
+                else:
+                    print(f"Arduino said: {line}")
+
+        print("ALL MOVES SENT")
+
+        movecommand = f"MOVXY {self.xpos},{self.ypos},0\n"
+        self.serialPort.write(movecommand.encode("utf8"))
+        print("MOVED BACK TO ORIGINAL POSITION")
 
     # def move_pen(self):
+    #     commands = []
     #     for n in range(len(self.datax)):
     #         if self.runparam:
-    #             newcommand = f"MOVXY {self.datax[n]},{self.datay[n]},{self.laserstate[n]}\n"
-    #             start = time.perf_counter()
-    #             currenttime = 0
-    #             timeout = 2
-    #             self.serialPort.write(newcommand.encode("utf8"))
+    #             commands.append(f"MOVXY {self.datax[n]},{self.datay[n]},{100}\n")
+    #             #message = self.serialPort.readline().decode()
+    #             self.framecrop2 = cv2.circle(self.framecrop,
+    #                                         (int(self.datay[n] / float(self.scalingentry.get()) + self.frameshape[
+    #                                             1] / 2),
+    #                                          int(self.datax[n] / float(self.scalingentry.get()) + self.frameshape[
+    #                                              0] / 2)),
+    #                                         1, (0, 255, 0), -1)
+    #             self.update_canvas(self.framecrop2)
     #
-    #             while (self.serialPort.inWaiting() == 0) & (currenttime < timeout):
-    #                 currenttime = time.perf_counter() - start
+    #     # Send all commands at once
+    #     complete_command = ''.join(commands)
+    #     self.serialPort.write(complete_command.encode("utf8"))
+    #     print("sent commands")
+    #     print(complete_command)
     #
-                # message = self.serialPort.readline().decode()
-                # self.framecrop = cv2.circle(self.framecrop,
-                #                             (int(self.datay[n] / float(self.scalingentry.get()) + self.frameshape[
-                #                                 1] / 2),
-                #                              int(self.datax[n] / float(self.scalingentry.get()) + self.frameshape[
-                #                                  0] / 2)),
-                #                             1, (0, 255, 0), -1)
-                # self.update_canvas(self.framecrop)
     #
-    #     self.move_home()
+    #     print("MOVES MADE")
+    #
+    #     # Asynchronously read responses
+    #     while self.serialPort.inWaiting() > 0:
+    #         message = self.serialPort.readline().decode()
+    #         # Handle the response as needed
+    #         print(message)
+    #
+    #     print("MOVEs DONE")
+    #     time.sleep(1)
+    #     movecommand = f"MOVXY {self.xpos},{self.ypos},0\n"
+    #     self.serialPort.write(movecommand.encode("utf8"))
+    #     #self.move_home()
+    #     print("MOVED BACK TO ORIGINAL POSITION ")
 
+    def update_webcam_thread(self):
+        while self.webcam_running:
+            ret, frame = self.cap.read()
+            if ret:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame)
+                imgtk = ImageTk.PhotoImage(image=img)
+
+                def update_gui():
+                    self.webcam_label.config(image=imgtk)
+                    self.webcam_label.image = imgtk  # Prevent garbage collection
+
+                self.webcam_label.after(0, update_gui)
+
+    def draw_size_box(self, box_width_mm, box_height_mm):
+        # Check if the ROI has been set
+        if self.frameshape is None:
+            print("ROI not set yet!")
+            return
+
+        # Unpack ROI dimensions (note: rows are height, columns are width)
+        roi_height, roi_width = self.frameshape[0], self.frameshape[1]
+
+        # Canvas dimensions (same as in update_canvas)
+        canvas_width, canvas_height = 400, 300
+
+        # Calculate conversion ratios from original ROI to canvas
+        ratio_x = canvas_width / roi_width
+        ratio_y = canvas_height / roi_height
+
+        # Get the current scaling factor from the entry (mm per pixel)
+        scaling_factor = float(self.scalingentry.get())
+
+        # Convert physical box dimensions (mm) to pixels in the original ROI
+        box_width_pixels = box_width_mm / scaling_factor
+        box_height_pixels = box_height_mm / scaling_factor
+
+        # Convert those to canvas (display) coordinates
+        box_width_canvas = box_width_pixels * ratio_x
+        box_height_canvas = box_height_pixels * ratio_y
+
+        # Center the box on the canvas
+        center_x = canvas_width / 2
+        center_y = canvas_height / 2
+        x0 = center_x - box_width_canvas / 2
+        y0 = center_y - box_height_canvas / 2
+        x1 = center_x + box_width_canvas / 2
+        y1 = center_y + box_height_canvas / 2
+
+        # Draw the rectangle overlay; adjust outline color or width as desired.
+        self.imagecanvas.create_rectangle(x0, y0, x1, y1, outline="red", width=2)
+
+    ####
+    # Laser controls
+    ####
     def set_laser_power(self, *args):
         try:
             #self.laser_var
             power = float(self.laser_var.get())
-            V = (0.57293088182473 + 0.020850373782878 * power -
-                 3.80944309285036e-5 * power ** 2 +
-                 4.98300866491694e-8 * power ** 3)
-            self.laserpower = int(V * 255 / 5)
-            if self.laserpower > 255:
-                self.laserpower = 255
+
+            self.laserpower = int((power))
+            if self.laserpower > 100:
+                self.laserpower = 100
         except:
             pass
         print(self.laserpower)
@@ -351,11 +376,16 @@ class XYStageDriver:
 
         self.serialPort.write(newcommand.encode("utf8"))
 
+    ####
+    # movement functions
+    ####
     def move_x(self):
         #self.set_speed()
         xmove = float(self.movexentry.get())
         movecommand = f"MOVEX {xmove}\n"
         self.serialPort.write(movecommand.encode("utf8"))
+        # Read the updated position from serial
+        self.read_serial()
 
     def move_y(self):
         #self.set_speed()
@@ -363,15 +393,25 @@ class XYStageDriver:
         movecommand = f"MOVEY {ymove}\n"
         self.serialPort.write(movecommand.encode("utf8"))
 
+        self.read_serial()
+
     def move_home(self):
         #self.set_speed()
         movecommand = "MOVXY 0,0,0\n"
         self.serialPort.write(movecommand.encode("utf8"))
+        self.ypos = 0
+        self.xpos = 0
+
+        self.read_serial()
 
     def set_home(self):
         #self.set_speed()
         homecommand = "SETHO\n"
         self.serialPort.write(homecommand.encode("utf8"))
+        self.xpos =0
+        self.ypos =0
+
+        self.read_serial()
 
     def clear_data(self):
         self.datax = []
@@ -385,31 +425,32 @@ class XYStageDriver:
         new_yposition = int(self.ypos) - move
         movecommand = f"MOVEY {new_yposition}\n"
         self.serialPort.write(movecommand.encode("utf8"))
-        #update new location
-        self.ypos = new_yposition
+
+        self.read_serial()
 
     def jog_down(self):
         move = float(self.jog_distance_entry.get())
         new_yposition = int(self.ypos) + move
         movecommand = f"MOVEY {new_yposition}\n"
         self.serialPort.write(movecommand.encode("utf8"))
-        # update new location
-        self.ypos = new_yposition
+
+        self.read_serial()
 
     def jog_left(self):
         move = float(self.jog_distance_entry.get())
         new_xposition = int(self.xpos) + move
         movecommand = f"MOVEX {new_xposition}\n"
         self.serialPort.write(movecommand.encode("utf8"))
-        # update new location
-        self.xpos = new_xposition
+
+        self.read_serial()
+
     def jog_right(self):
         move = float(self.jog_distance_entry.get())
         new_xposition = int(self.xpos) - move
         movecommand = f"MOVEX {new_xposition}\n"
         self.serialPort.write(movecommand.encode("utf8"))
-        # update new location
-        self.xpos = new_xposition
+
+        self.read_serial()
 
     def move_home_limits(self):
         # find x low
@@ -453,9 +494,56 @@ class XYStageDriver:
 
     def on_close(self):
         self.serialPort.close()
+        #self.cap.release()
         time.sleep(1)
         self.root.destroy()
 
+    ########################
+    # Connections
+    ########################
+
+    def initialize_serial(self):
+        print("Initialising COM ports")
+        ports = list(port_list.comports())
+        port = None
+
+        try:
+            for n in range(len(ports)):
+                if "Arduino" in str(ports[n]):
+                    port = ports[n].device
+                    break
+            if not port:
+                raise Exception("No Arduino found")
+        except Exception as e:
+            print(str(e))
+            sys.exit(1)
+
+        try:
+            serialPort = serial.Serial(port=port, baudrate=115200, timeout=2)
+            serialPort.set_buffer_size(rx_size=4096, tx_size=4096)
+            time.sleep(0.1)
+        except:
+            print("Unable to detect Arduino")
+            print(ports)
+            sys.exit(1)
+
+        print(f'COM port for Arduino is {port}')
+        return port, serialPort
+
+
+    def read_serial(self):
+        line = self.serialPort.readline().decode().strip()
+        if line.startswith("POS:"):
+            try:
+                _, coord_string = line.split("POS:")
+                x_str, y_str = coord_string.split(',')
+                self.xpos = float(x_str)
+                self.ypos = float(y_str)
+                print(f"Updated position: x={self.xpos}, y={self.ypos}")
+            except ValueError as e:
+                print(f"Error parsing position: {line} — {e}")
+        else:
+            print(f"Ignoring non-position serial line: {line}")
 
 if __name__ == "__main__":
     driver = XYStageDriver()

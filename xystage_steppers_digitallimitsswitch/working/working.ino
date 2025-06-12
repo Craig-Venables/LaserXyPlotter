@@ -111,7 +111,7 @@ void processCommand(String commandString) {
     if (comstring == "HOMEX") {
         //4572 LONG    
     stepperx.setAcceleration(10000); // Set high acceleration for immediate stop
-
+    
     // Move to the lower limit
     positions[0] = 15000;
     positions[1] = 0;
@@ -229,15 +229,19 @@ void processCommand(String commandString) {
             laserpower = 255;
         }
         analogWrite(laserpin, laserpower);
-        Serial.println("Laser on");
+        //Serial.println("Laser on");
 
     } else if (comstring == "LASOF") {
         digitalWrite(laserpin, LOW);
-        Serial.println("Laser off");
+        //Serial.println("Laser off");
     } else if (comstring == "SETHO") {
         xpos = 0.0;
         ypos = 0.0;
         Serial.println("Home position set");
+        Serial.println(xpos);
+        Serial.print(',');
+        Serial.print(ypos);
+       
     } else if (comstring == "ENDSX") {
         stepperx.setMaxSpeed(carriagespeed);
         stepperx.setAcceleration(acceleration);
@@ -305,7 +309,10 @@ void processCommand(String commandString) {
           
 
         //xpos += (abs(xsteps) - abs(stepperx.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
-        Serial.println(xpos);
+        
+        Serial.print(xpos);
+        Serial.print(',');
+        Serial.print(ypos);
         stepperx.setCurrentPosition(0);
         steppery.setCurrentPosition(0);
     } else if (comstring == "MOVEY") {
@@ -345,7 +352,12 @@ void processCommand(String commandString) {
 
         //ypos += (abs(ysteps) - abs(steppery.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
         
-        Serial.println(ypos);
+        Serial.print("POS:");
+    Serial.print(xpos);
+    Serial.print(',');
+    Serial.println(ypos);
+        //Serial.println('');
+
         steppery.setCurrentPosition(0);
         stepperx.setCurrentPosition(0);
     } 
@@ -412,12 +424,12 @@ void processCommand(String commandString) {
 
     // xpos += (abs(xsteps) - abs(stepperx.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
     // ypos += (abs(ysteps) - abs(steppery.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
-
+    
     Serial.print(xpos);
     Serial.print(',');
     Serial.print(ypos);
-    Serial.print(',');
-    Serial.println(laserpower);
+    // Serial.print(',');
+    // Serial.println(laserpower);
     stepperx.setCurrentPosition(0);
     steppery.setCurrentPosition(0);
 }}
