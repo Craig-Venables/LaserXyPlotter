@@ -1,10 +1,10 @@
 #include <AccelStepper.h>
 #include <MultiStepper.h>
 
-float stepsPerRevolution = 200.0;
+float stepsPerRevolution = 1600.0;
 float distance_per_rotation = 8.0;
-int carriagespeed = 800;
-int acceleration = 500;
+int carriagespeed = 5000;
+int acceleration = 2000;
 float xpos = 0.0;
 float ypos = 0.0;
 
@@ -18,10 +18,13 @@ const int ysteppin = 8;
 const int yhomepin = 9;
 const int yendpin = 10;
 const int laserpin = 11;
-const int bufferSize = 10;
+const int bufferSize = 5;
 String commandBuffer[bufferSize];
 int bufferHead = 0;
 int bufferTail = 0;
+
+int commandsProcessed = 0;
+const int maxBatchSize = 5;
 
 long positions[2]; // Global array
 
@@ -30,7 +33,7 @@ AccelStepper steppery(1, ysteppin, ydirpin);
 MultiStepper steppers;
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
     stepperx.setMaxSpeed(carriagespeed);
     steppery.setMaxSpeed(carriagespeed);
     steppers.addStepper(stepperx);
@@ -42,28 +45,36 @@ void setup() {
     pinMode(yendpin, INPUT);
     pinMode(enablepin, OUTPUT);
     pinMode(laserpin, OUTPUT);
-    digitalWrite(enablepin, HIGH);
+    digitalWrite(enablepin, LOW);
     digitalWrite(laserpin, LOW);
 }
 
 void loop() {
+    // Receive serial input and store in buffer
     if (Serial.available() > 0) {
         String incomingString = Serial.readStringUntil('\n');
         commandBuffer[bufferHead] = incomingString;
         bufferHead = (bufferHead + 1) % bufferSize;
 
-        // Avoid overwriting the buffer
+        // Prevent buffer overrun
         if (bufferHead == bufferTail) {
-            bufferTail = (bufferTail + 1) % bufferSize; // Drop the oldest command
+            bufferTail = (bufferTail + 1) % bufferSize;
         }
     }
 
-    while (bufferTail != bufferHead) {
+    // Process up to maxBatchSize commands
+    commandsProcessed = 0;
+    while (bufferTail != bufferHead && commandsProcessed < maxBatchSize) {
         String command = commandBuffer[bufferTail];
         bufferTail = (bufferTail + 1) % bufferSize;
 
-        // Process the command
         processCommand(command);
+        commandsProcessed++;
+    }
+
+    // Let Python know we're ready for the next batch
+    if (commandsProcessed > 0) {
+        Serial.println("READY");
     }
 }
 
@@ -111,7 +122,7 @@ void processCommand(String commandString) {
     if (comstring == "HOMEX") {
         //4572 LONG    
     stepperx.setAcceleration(10000); // Set high acceleration for immediate stop
-
+    
     // Move to the lower limit
     positions[0] = 15000;
     positions[1] = 0;
@@ -229,15 +240,19 @@ void processCommand(String commandString) {
             laserpower = 255;
         }
         analogWrite(laserpin, laserpower);
-        Serial.println("Laser on");
+        //Serial.println("Laser on");
 
     } else if (comstring == "LASOF") {
         digitalWrite(laserpin, LOW);
-        Serial.println("Laser off");
+        //Serial.println("Laser off");
     } else if (comstring == "SETHO") {
         xpos = 0.0;
         ypos = 0.0;
         Serial.println("Home position set");
+        Serial.println(xpos);
+        Serial.print(',');
+        Serial.print(ypos);
+       
     } else if (comstring == "ENDSX") {
         stepperx.setMaxSpeed(carriagespeed);
         stepperx.setAcceleration(acceleration);
@@ -267,157 +282,168 @@ void processCommand(String commandString) {
         Serial.println("Y motor moved to end stop");
 
     } else if (comstring == "MOVEX") {
-        stepperx.setAcceleration(acceleration);
-        int movestringindex = commandString.indexOf(' ');
-        String movestring = commandString.substring(movestringindex + 1);
-        float newxpos = movestring.toFloat();
-        int xsteps = (newxpos - xpos) * stepsPerRevolution / distance_per_rotation;
+    stepperx.setMaxSpeed(carriagespeed);  // Use setMaxSpeed, not setSpeed
+    stepperx.setAcceleration(acceleration);
+    
+    int movestringindex = commandString.indexOf(' ');
+    String movestring = commandString.substring(movestringindex + 1);
+    float newxpos = movestring.toFloat();
+    int xsteps = (newxpos - xpos) * stepsPerRevolution / distance_per_rotation;
 
-        // Check direction flags
-        if (xsteps > 0 && !xPositiveAllowed) xsteps = 0;
-        if (xsteps < 0 && !xNegativeAllowed) xsteps = 0;
+    // Check direction flags
+    if (xsteps > 0 && !xPositiveAllowed) xsteps = 0;
+    if (xsteps < 0 && !xNegativeAllowed) xsteps = 0;
 
-        positions[0] = -xsteps;
-        positions[1] = 0;
-        steppers.moveTo(positions);
-        
+    positions[0] = -xsteps;
+    positions[1] = 0;
+    steppers.moveTo(positions);
+    
+    digitalWrite(enablepin, HIGH);
 
-        if (xsteps < 0) {
-            stepperx.setSpeed(carriagespeed);
-        } else {
-            stepperx.setSpeed(-carriagespeed);
-        }
-        digitalWrite(enablepin, HIGH);
-
-        while (steppers.run()) {
-        if (handleLimitSwitches()) {
-            break; // Exit the loop if a limit switch is triggered
-        }
-}
-        //steppers.runSpeedToPosition();
-
-        if (xsteps < 0){
-        xpos=xpos-(abs(xsteps)-abs(stepperx.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-      }
-      else{
-        xpos=xpos+(abs(xsteps)-abs(stepperx.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-      }
-          
-
-        //xpos += (abs(xsteps) - abs(stepperx.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
-        Serial.println(xpos);
-        stepperx.setCurrentPosition(0);
-        steppery.setCurrentPosition(0);
-    } else if (comstring == "MOVEY") {
-        steppery.setSpeed(carriagespeed);
-        steppery.setAcceleration(acceleration);
-        int movestringindex = commandString.indexOf(' ');
-        String movestring = commandString.substring(movestringindex + 1);
-        float newypos = movestring.toFloat();
-        float ysteps = (newypos - ypos) * stepsPerRevolution / distance_per_rotation;
-
-        if (ysteps > 0 && !yPositiveAllowed) ysteps = 0;
-        if (ysteps < 0 && !yNegativeAllowed) ysteps = 0;
-
-        positions[0] = 0;
-        positions[1] = -ysteps;
-        steppers.moveTo(positions);
-        if (ysteps < 0) {
-            steppery.setSpeed(carriagespeed);
-        } else {
-            steppery.setSpeed(-carriagespeed);
-        }
-        digitalWrite(enablepin, HIGH);
-
-        while (steppers.run()) {
+    // Use runSpeedToPosition for smoother movement
+    while (steppers.run()) {
+        // Only check limit switches periodically, not every iteration
+        static unsigned long lastCheck = 0;
+        if (millis() - lastCheck > 10) {  // Check every 10ms
+            lastCheck = millis();
             if (handleLimitSwitches()) {
                 break;
             }
         }
-        //steppers.runSpeedToPosition();
+    }
 
-        if (ysteps < 0){
-        ypos=ypos-(abs(ysteps)-abs(steppery.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-        }
-        else{
-        ypos=ypos+(abs(ysteps)-abs(steppery.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-        }
-
-        //ypos += (abs(ysteps) - abs(steppery.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
-        
-        Serial.println(ypos);
-        steppery.setCurrentPosition(0);
-        stepperx.setCurrentPosition(0);
-    } 
-    else if (comstring == "MOVXY") {
-    stepperx.setMaxSpeed(carriagespeed);
-    steppery.setMaxSpeed(carriagespeed);
-
+    // Update position
+    int stepsCompleted = xsteps - stepperx.distanceToGo();
+    xpos += stepsCompleted * distance_per_rotation / stepsPerRevolution;
+    
+    Serial.print("POS:");
+    Serial.print(xpos);
+    Serial.print(',');
+    Serial.println(ypos);
+    
+    stepperx.setCurrentPosition(0);
+    steppery.setCurrentPosition(0);
+} else if (comstring == "MOVEY") {
+    steppery.setMaxSpeed(carriagespeed);  // Use setMaxSpeed, not setSpeed
+    steppery.setAcceleration(acceleration);
+    
     int movestringindex = commandString.indexOf(' ');
     String movestring = commandString.substring(movestringindex + 1);
+    float newypos = movestring.toFloat();
+    float ysteps = (newypos - ypos) * stepsPerRevolution / distance_per_rotation;
+
+    // Check direction flags
+    if (ysteps > 0 && !yPositiveAllowed) ysteps = 0;
+    if (ysteps < 0 && !yNegativeAllowed) ysteps = 0;
+
+    positions[0] = 0;
+    positions[1] = -ysteps;
+    steppers.moveTo(positions);
+    
+    digitalWrite(enablepin, HIGH);
+
+    // Execute movement
+    while (steppers.run()) {
+        // Only check limit switches periodically, not every iteration
+        static unsigned long lastCheck = 0;
+        if (millis() - lastCheck > 10) {  // Check every 10ms
+            lastCheck = millis();
+            if (handleLimitSwitches()) {
+                break;
+            }
+        }
+    } 
+    // Update position based on actual steps completed
+    int stepsCompleted = ysteps - steppery.distanceToGo();
+    ypos += stepsCompleted * distance_per_rotation / stepsPerRevolution;
+    
+    Serial.print("POS:");
+    Serial.print(xpos);
+    Serial.print(',');
+    Serial.println(ypos);
+
+    steppery.setCurrentPosition(0);
+    stepperx.setCurrentPosition(0);
+    }
+    else if (comstring == "MOVXY") {
+    // Set movement parameters
+    stepperx.setMaxSpeed(carriagespeed);
+    steppery.setMaxSpeed(carriagespeed);
+    stepperx.setAcceleration(acceleration);
+    steppery.setAcceleration(acceleration);
+
+    // Extract the command string after "MOVXY"
+    int movestringindex = commandString.indexOf(' ');
+    String movestring = commandString.substring(movestringindex + 1);
+
+    // Parse x, y, and laser power
     int movestringindex2 = movestring.indexOf(',');
     String xmovestring = movestring.substring(0, movestringindex2);
     movestring = movestring.substring(movestringindex2 + 1);
+
     int movestringindex3 = movestring.indexOf(',');
     String ymovestring = movestring.substring(0, movestringindex3);
     String powerstring = movestring.substring(movestringindex3 + 1);
     int laserpower = powerstring.toInt();
 
+    // Convert to floats
     float newxpos = xmovestring.toFloat();
     float newypos = ymovestring.toFloat();
+
+    // Convert to steps
     int xsteps = (newxpos - xpos) * stepsPerRevolution / distance_per_rotation;
     int ysteps = (newypos - ypos) * stepsPerRevolution / distance_per_rotation;
 
-
+    // Safety: prevent movement if direction is blocked
     if (xsteps > 0 && !xPositiveAllowed) xsteps = 0;
     if (xsteps < 0 && !xNegativeAllowed) xsteps = 0;
     if (ysteps > 0 && !yPositiveAllowed) ysteps = 0;
     if (ysteps < 0 && !yNegativeAllowed) ysteps = 0;
 
+    // Set new target positions
     positions[0] = -xsteps;
     positions[1] = -ysteps;
     steppers.moveTo(positions);
 
-    if (xsteps < 0)
-        stepperx.setSpeed(carriagespeed);
-    else
-        stepperx.setSpeed(-carriagespeed);
-    
-    if (ysteps < 0)
-        steppery.setSpeed(carriagespeed);
-    else
-        steppery.setSpeed(-carriagespeed);
-
+    // Enable motors and set laser
     digitalWrite(enablepin, HIGH);
+    if (laserpower > 255) {
+        laserpower = 255;
+    }
     analogWrite(laserpin, laserpower);
+
+    // Execute movement until target reached or limit hit
     while (steppers.run()) {
+        // Only check limit switches periodically, not every iteration
+        static unsigned long lastCheck = 0;
+        if (millis() - lastCheck > 10) {  // Check every 10ms
+            lastCheck = millis();
             if (handleLimitSwitches()) {
                 break;
             }
         }
+    }
+
+    // Update logical position based on actual steps completed
+    int xstepsCompleted = xsteps - stepperx.distanceToGo();
+    int ystepsCompleted = ysteps - steppery.distanceToGo();
     
-    if (xsteps < 0){
-    xpos=xpos-(abs(xsteps)-abs(stepperx.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-    }
-    else{
-    xpos=xpos+(abs(xsteps)-abs(stepperx.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-    }
+    xpos += xstepsCompleted * distance_per_rotation / stepsPerRevolution;
+    ypos += ystepsCompleted * distance_per_rotation / stepsPerRevolution;
 
-    if (ysteps < 0){
-    ypos=ypos-(abs(ysteps)-abs(steppery.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-    }
-    else{
-    ypos=ypos+(abs(ysteps)-abs(steppery.distanceToGo()))*distance_per_rotation/stepsPerRevolution;
-    }
-
-    // xpos += (abs(xsteps) - abs(stepperx.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
-    // ypos += (abs(ysteps) - abs(steppery.distanceToGo())) * distance_per_rotation / stepsPerRevolution;
-
+    // Print final position for logging/debugging
+    Serial.print("POS:");
     Serial.print(xpos);
     Serial.print(',');
-    Serial.print(ypos);
-    Serial.print(',');
-    Serial.println(laserpower);
+    Serial.println(ypos);
+
+    // Reset internal step counter positions
     stepperx.setCurrentPosition(0);
     steppery.setCurrentPosition(0);
+
+    // Turn off laser after movement
+    digitalWrite(laserpin, LOW);
+
+    // Notify host that this command is finished
+    Serial.println("READY");
 }}

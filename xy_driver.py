@@ -431,6 +431,7 @@ class XYStageDriver:
     def jog_down(self):
         move = float(self.jog_distance_entry.get())
         new_yposition = int(self.ypos) + move
+        print("expected pos:",new_yposition)
         movecommand = f"MOVEY {new_yposition}\n"
         self.serialPort.write(movecommand.encode("utf8"))
 
@@ -530,20 +531,28 @@ class XYStageDriver:
         print(f'COM port for Arduino is {port}')
         return port, serialPort
 
-
     def read_serial(self):
-        line = self.serialPort.readline().decode().strip()
-        if line.startswith("POS:"):
-            try:
-                _, coord_string = line.split("POS:")
-                x_str, y_str = coord_string.split(',')
-                self.xpos = float(x_str)
-                self.ypos = float(y_str)
-                print(f"Updated position: x={self.xpos}, y={self.ypos}")
-            except ValueError as e:
-                print(f"Error parsing position: {line} — {e}")
-        else:
-            print(f"Ignoring non-position serial line: {line}")
+        start_time = time.time()
+        timeout = 2  # seconds
+        while time.time() - start_time < timeout:
+            if self.serialPort.inWaiting() > 0:
+                line = self.serialPort.readline().decode().strip()
+                if line.startswith("POS:"):
+                    try:
+                        _, coord_string = line.split("POS:")
+                        x_str, y_str = coord_string.split(',')
+                        self.xpos = int(float(x_str))
+                        self.ypos = int(float(y_str))
+                        print(f"Updated position: x={self.xpos}, y={self.ypos}")
+                        return
+                    except ValueError as e:
+                        print(f"Error parsing position: {line} — {e}")
+                else:
+                    # Still read and print other lines like "READY"
+                    print(f"Ignoring non-position serial line: {line}")
+            else:
+                time.sleep(0.01)
+        print("Timed out waiting for position update.")
 
 if __name__ == "__main__":
     driver = XYStageDriver()
